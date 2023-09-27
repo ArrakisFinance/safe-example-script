@@ -3,6 +3,7 @@ import Safe, { EthersAdapter }  from '@safe-global/protocol-kit';
 import { MetaTransactionData } from "@safe-global/safe-core-sdk-types";
 import abi from "./abi.json";
 import * as dotenv from "dotenv";
+import SafeApiKit, {ProposeTransactionProps} from '@safe-global/api-kit';
 
 const ARRAKIS_V2_ROUTER = "0x6aC8Bab8B775a03b8B72B2940251432442f61B94";
 const AMOUNT_0 = "500000000000000";
@@ -13,11 +14,14 @@ const SAFE = "0x19E3895299DF643f47f0f6f0567f84FEA46E9aFa";
 const CHAINID = 10;
 const VAULT = "0xe10546beE6424213dd9c80edd55E90Fea96E6e11";
 const GAUGE = "0xd9723FffDA369d119fbd66a15113144Bf76e281C";
+const SERVICE_URL = "https://safe-transaction-optimism.safe.global/";
 
 dotenv.config({ path: __dirname + "/.env" });
 const ALCHEMY_ID = process.env.ALCHEMY_ID;
+const SK = process.env.SK;
 
 const provider = new ethers.providers.AlchemyProvider(CHAINID, ALCHEMY_ID);
+const signer = new ethers.Wallet(SK!=undefined ? SK : "", provider);
 
 async function main() {
   const arrakisV2Router = new ethers.Contract(
@@ -28,8 +32,13 @@ async function main() {
 
   const ethAdapter = new EthersAdapter({
     ethers,
-    signerOrProvider: provider
+    signerOrProvider: signer
   });
+
+  const safeService = new SafeApiKit({
+    txServiceUrl: SERVICE_URL,
+    ethAdapter
+  })
 
   const safeSdk: Safe = await Safe.create({ ethAdapter: ethAdapter, safeAddress: SAFE });
   
@@ -70,8 +79,18 @@ async function main() {
   ];
 
   const safeTransaction = await safeSdk.createTransaction({ safeTransactionData, onlyCalls: true });
+  const stxh = await safeSdk.getTransactionHash(safeTransaction);
+  const sig = await safeSdk.signTransactionHash(stxh);
 
-  console.log(safeTransaction.data);
+  const transactionConfig: ProposeTransactionProps = {
+    safeAddress: SAFE,
+    safeTxHash: stxh,
+    safeTransactionData: safeTransaction.data,
+    senderAddress: signer.address,
+    senderSignature: sig.data,
+    origin: signer.address
+  };
+  await safeService.proposeTransaction(transactionConfig);
 }
 
 main().catch((error) => {
